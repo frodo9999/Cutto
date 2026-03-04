@@ -2,8 +2,9 @@
 
 function cleanText(text: string): string {
   return text
-    .replace(/```json\n?/g, '')
-    .replace(/```\n?/g, '')
+    .replace(/```json\\n?/g, '')
+    .replace(/```\\n?/g, '')
+    .replace(/\\n/g, '\n')
     .trim();
 }
 

@@ -67,7 +67,7 @@ Be specific and actionable. The goal is to help someone recreate the viral formu
         for part in chunk.candidates[0].content.parts:
             if part.text:
                 full_text += part.text
-                yield {"type": "text_chunk", "content": part.text}
+                yield {"type": "text_chunk", "content": part.text.replace('\n', '\\n')}
 
     # Parse analysis JSON
     analysis_data = None
@@ -109,13 +109,16 @@ Between each image, write a brief caption with the scene number and timing note.
 
             for part in image_response.candidates[0].content.parts:
                 if part.text:
-                    yield {"type": "text_chunk", "content": part.text}
+                    yield {"type": "text_chunk", "content": part.text.replace('\n', '\\n')}
                 elif part.inline_data:
+                    print(f"[DEBUG] Image generated! size={len(part.inline_data.data)} bytes")
                     image_b64 = base64.b64encode(part.inline_data.data).decode()
                     yield {
                         "type": "storyboard_image",
                         "content": f"data:{part.inline_data.mime_type};base64,{image_b64}",
                     }
+                else:
+                    print(f"[DEBUG] Unknown part type: {part}")
         except Exception as e:
             yield {"type": "text_chunk", "content": f"\n(Storyboard generation skipped: {str(e)})\n"}
 

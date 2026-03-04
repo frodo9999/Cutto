@@ -31,12 +31,14 @@ export default function Home() {
   const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
   const [storyboardImages, setStoryboardImages] = useState<string[]>([]);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
+  const currentJobIdRef = useRef<string | null>(null);
 
   const handleUploadAndAnalyze = useCallback(
     async (viralVideo: File, requirements: string) => {
       setStage("analyzing");
       setAnalysisText("");
       setStoryboardImages([]);
+      currentJobIdRef.current = null;
 
       const formData = new FormData();
       formData.append("viral_video", viralVideo);
@@ -50,29 +52,48 @@ export default function Home() {
       if (!res.body) return;
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const text = decoder.decode(value);
-        const lines = text.split("\n");
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           try {
             const event = JSON.parse(line.slice(6));
-            if (event.type === "job_id") setJobId(event.content);
-            else if (event.type === "text_chunk")
-              setAnalysisText((prev) => prev + event.content);
-            else if (event.type === "storyboard_image")
-              setStoryboardImages((prev) => [...prev, event.content]);
+
+            if (event.type === "job_id") {
+              setJobId(event.content);
+              currentJobIdRef.current = event.content;
+            } else if (event.type === "text_chunk") {
+              setAnalysisText((prev) => prev + event.content.replace(/\\n/g, '\n'));
+            } else if (event.type === "storyboard_image_ready") {
+              // Fetch image via separate HTTP request to avoid SSE size limits
+              const jid = currentJobIdRef.current;
+              if (jid) {
+                fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/storyboard/${jid}/${event.index}`)
+                  .then(r => r.json())
+                  .then(data => {
+                    console.log(`[Image] Fetched image ${event.index} successfully`);
+                    setStoryboardImages((prev) => [...prev, data.image]);
+                  })
+                  .catch(e => console.error(`[Image] Failed to fetch image ${event.index}:`, e));
+              }
             } else if (event.type === "analysis_complete") {
               setAnalysisData(event.content);
             } else if (event.type === "done") {
               setStage("analyzed");
+            } else if (event.type === "error") {
+              console.error("Analysis error:", event.content);
             }
-          } catch {}
+          } catch (e) {
+            console.error("[SSE Parse Error]", e, "Line:", line.slice(0, 100));
+          }
         }
       }
     },
@@ -94,7 +115,6 @@ export default function Home() {
         { method: "POST", body: formData }
       );
 
-      // Poll for completion
       const poll = setInterval(async () => {
         const statusRes = await fetch(
           `${process.env.NEXT_PUBLIC_API_URL}/api/status/${jobId}`
@@ -116,7 +136,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#080808] text-white font-mono">
-      {/* Header */}
       <header className="border-b border-white/5 px-8 py-5 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-7 h-7 bg-[#FF3B00] rotate-45" />
@@ -166,7 +185,8 @@ function GeneratingScreen({ jobId }: { jobId: string }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-8">
       <div className="relative">
-        <div className="w-24 h-24 border border-[#FF3B00]/30 rotate-45 animate-spin" style={{ animationDuration: "3s" }} />
+        <div className="w-24 h-24 border border-[#FF3B00]/30 rotate-45 animate-spin"
+          style={{ animationDuration: "3s" }} />
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="w-3 h-3 bg-[#FF3B00]" />
         </div>

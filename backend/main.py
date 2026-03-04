@@ -8,6 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 
+def sse_event(data: dict) -> str:
+    """Safely encode SSE event, escaping content that could break SSE framing."""
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
 load_dotenv()
 
 from models.schemas import JobStatus, GenerationRequest, AnalysisResult
@@ -71,15 +75,16 @@ async def analyze_video(
 
         async for event in gemini_service.analyze_viral_video_stream(gcs_uri):
             if event["type"] == "text_chunk":
-                yield f"data: {json.dumps(event)}\n\n"
+                yield sse_event(event)
             elif event["type"] == "storyboard_image":
                 storyboard_images.append(event["content"])
-                yield f"data: {json.dumps(event)}\n\n"
+                # 不通过SSE发送图片，存到job里
+                yield sse_event({"type": "storyboard_image_ready", "index": len(storyboard_images) - 1})
             elif event["type"] == "analysis_complete":
                 analysis_data = event["content"]
-                yield f"data: {json.dumps(event)}\n\n"
+                yield sse_event(event)
             elif event["type"] == "error":
-                yield f"data: {json.dumps(event)}\n\n"
+                yield sse_event(event)
 
         # Save analysis to job
         if analysis_data:
@@ -194,6 +199,17 @@ async def get_job_status(job_id: str) -> JobStatus:
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     return jobs[job_id]
+
+
+@app.get("/api/storyboard/{job_id}/{index}")
+async def get_storyboard_image(job_id: str, index: int):
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = jobs[job_id]
+    if not job.storyboard_images or index >= len(job.storyboard_images):
+        raise HTTPException(status_code=404, detail="Image not found")
+    # 直接返回 base64 data URL
+    return {"image": job.storyboard_images[index]}
 
 
 if __name__ == "__main__":
