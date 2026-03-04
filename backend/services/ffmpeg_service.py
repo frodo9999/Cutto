@@ -155,13 +155,11 @@ async def _composite_with_transitions(clips: list[str], output_path: str):
 
 
 async def generate_signed_url(gcs_uri: str, expiration_minutes: int = 60) -> str:
-    """Generate a signed URL for temporary access to a GCS object."""
-    from datetime import timedelta
+    """Generate a accessible URL for the output video."""
     bucket_name, blob_name = _parse_gcs_uri(gcs_uri)
     bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(blob_name)
-    url = blob.generate_signed_url(
-        expiration=timedelta(minutes=expiration_minutes),
-        method="GET",
-    )
-    return url
+
+    # Make blob publicly accessible
+    blob.make_public()
+    return blob.public_url
