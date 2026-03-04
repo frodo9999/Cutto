@@ -31,7 +31,7 @@ app = FastAPI(title="Cutto API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://*.run.app"],
+    allow_origins=["http://localhost:3000", "https://*.run.app", "https://cutto.vercel.app", "https://*.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
