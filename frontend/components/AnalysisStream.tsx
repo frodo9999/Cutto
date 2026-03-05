@@ -2,9 +2,9 @@
 
 function cleanText(text: string): string {
   return text
-    .replace(/```json\\n?/g, '')
-    .replace(/```\\n?/g, '')
-    .replace(/\\n/g, '\n')
+    .replace(/```json(\\n)?/g, '')   // 先过滤，此时还是 \\n
+    .replace(/```(\\n)?/g, '')
+    .replace(/\\n/g, '\n')           // 再还原换行
     .trim();
 }
 
