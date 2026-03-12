@@ -17,18 +17,15 @@ export default function UploadZone({ onDone }: Props) {
   const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  const handleFile = useCallback(
-    (file: File) => {
-      if (!file.type.startsWith("video/")) return;
-      setFileName(file.name);
-      const url = URL.createObjectURL(file);
-      setPreview(url);
-      // Small delay for preview animation
-      setTimeout(() => onDone(file), 800);
-    },
-    [onDone]
-  );
+  const handleFile = useCallback((file: File) => {
+    if (!file.type.startsWith("video/")) return;
+    setFileName(file.name);
+    setSelectedFile(file);
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+  }, []);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -82,7 +79,7 @@ export default function UploadZone({ onDone }: Props) {
           {preview ? (
             <>
               <video
-                src={preview} muted playsInline autoPlay
+                src={preview} muted playsInline autoPlay loop
                 style={{ width: "100%", maxHeight: 180, borderRadius: 8, objectFit: "cover" }}
               />
               <span style={{ fontSize: 12, color: "rgba(196,181,253,0.6)" }}>{fileName}</span>
@@ -125,6 +122,17 @@ export default function UploadZone({ onDone }: Props) {
             </div>
           ))}
         </div>
+
+        {/* Analyze button — only shown after file selected */}
+        {selectedFile && (
+          <button
+            className="btn-primary"
+            onClick={() => onDone(selectedFile)}
+            style={{ marginTop: 16 }}
+          >
+            Analyze with Gemini →
+          </button>
+        )}
       </div>
     </div>
   );
