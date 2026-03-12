@@ -1,48 +1,79 @@
 "use client";
 
 interface Props {
-  url: string;
+  videoUrl: string;
   onReset: () => void;
 }
 
-export default function ResultPlayer({ url, onReset }: Props) {
+export default function ResultPlayer({ videoUrl, onReset }: Props) {
   return (
-    <div className="flex flex-col items-center gap-8">
-      <div className="text-center space-y-2">
-        <div className="flex items-center justify-center gap-3">
-          <div className="w-2 h-2 bg-[#FF3B00]" />
-          <h2 className="text-xs tracking-[0.3em] uppercase text-white/60">
-            Your video is ready
-          </h2>
-          <div className="w-2 h-2 bg-[#FF3B00]" />
-        </div>
-        <p className="text-3xl font-bold">Viral formula replicated.</p>
+    <div className="fade-up" style={{
+      maxWidth: 680, margin: "0 auto", padding: "0 20px",
+      display: "flex", flexDirection: "column", gap: 16,
+    }}>
+      {/* Header */}
+      <div style={{ textAlign: "center", marginBottom: 8 }}>
+        <h2 style={{
+          fontFamily: "var(--font-syne)", fontWeight: 800, fontSize: 26,
+          color: "#f3f0ff", letterSpacing: "-0.3px", marginBottom: 6,
+        }}>
+          Your video is ready
+        </h2>
+        <p style={{ fontSize: 13, color: "rgba(196,181,253,0.6)" }}>
+          Generated with Gemini + Veo 3.1
+        </p>
       </div>
 
-      {/* Video player */}
-      <div className="w-full max-w-sm border border-white/10">
+      {/* Video player card */}
+      <div className="glass-card" style={{ padding: 16 }}>
         <video
-          src={url}
+          src={videoUrl}
           controls
           autoPlay
-          loop
-          className="w-full"
+          style={{
+            width: "100%", borderRadius: 10, display: "block",
+            background: "rgba(0,0,0,0.4)",
+          }}
         />
       </div>
 
-      <div className="flex gap-4">
+      {/* Actions */}
+      <div style={{ display: "flex", gap: 10 }}>
         <a
-          href={url}
-          download="cutto-video.mp4"
-          className="px-8 py-3 bg-[#FF3B00] text-sm tracking-widest uppercase font-bold hover:bg-[#FF5500] transition-colors"
+          href={videoUrl}
+          download="cutto-output.mp4"
+          style={{
+            flex: 1, display: "block", textAlign: "center",
+            background: "rgba(139,92,246,0.35)",
+            color: "#f3f0ff",
+            border: "1px solid rgba(167,139,250,0.45)",
+            borderRadius: 10, padding: "11px 18px",
+            fontSize: 13, fontWeight: 600,
+            fontFamily: "var(--font-syne)",
+            letterSpacing: "0.02em",
+            textDecoration: "none",
+            backdropFilter: "blur(12px)",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12)",
+            transition: "background 0.2s",
+          }}
         >
-          Download
+          Download MP4 ↓
         </a>
         <button
           onClick={onReset}
-          className="px-8 py-3 border border-white/20 text-sm tracking-widest uppercase text-white/60 hover:border-white/40 transition-colors"
+          style={{
+            flex: 1,
+            background: "rgba(255,255,255,0.06)",
+            color: "rgba(196,181,253,0.8)",
+            border: "1px solid rgba(167,139,250,0.2)",
+            borderRadius: 10, padding: "11px 18px",
+            fontSize: 13, fontWeight: 600,
+            fontFamily: "var(--font-syne)",
+            cursor: "pointer",
+            transition: "background 0.2s",
+          }}
         >
-          New Video
+          Start over ↩
         </button>
       </div>
     </div>

@@ -1,26 +1,287 @@
 @import "tailwindcss";
 
+/* ── Cutto Design Tokens ── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Backgrounds */
+  --bg-base-from: #1a0533;
+  --bg-base-to: #3b0764;
+  --surface-glass: rgba(255, 255, 255, 0.07);
+  --surface-glass-hover: rgba(255, 255, 255, 0.11);
+  --surface-inset: rgba(0, 0, 0, 0.2);
+  --surface-inset-hover: rgba(0, 0, 0, 0.25);
+
+  /* Borders */
+  --border-glass: rgba(255, 255, 255, 0.12);
+  --border-glass-hi: rgba(255, 255, 255, 0.2);
+  --border-purple: rgba(167, 139, 250, 0.2);
+  --border-purple-hi: rgba(167, 139, 250, 0.45);
+
+  /* Text */
+  --text-primary: #f3f0ff;
+  --text-secondary: #e9d5ff;
+  --text-muted: rgba(196, 181, 253, 0.7);
+  --text-faint: rgba(196, 181, 253, 0.45);
+
+  /* Accent */
+  --purple-bright: #a78bfa;
+  --purple-mid: #8b5cf6;
+  --purple-deep: #6d28d9;
+  --purple-btn: rgba(139, 92, 246, 0.35);
+  --purple-btn-hover: rgba(139, 92, 246, 0.52);
+
+  /* Status */
+  --green-live: #86efac;
+
+  /* Shadows */
+  --shadow-card: 0 2px 32px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  --shadow-card-hover: 0 8px 40px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  --shadow-btn: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --shadow-btn-hover: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 4px 20px rgba(109, 40, 217, 0.35);
+
+  /* Radius */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  /* Font */
+  --font-display: var(--font-syne), 'Syne', sans-serif;
+  --font-body: var(--font-inter), 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ── Reset ── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-body);
+  background: linear-gradient(140deg, var(--bg-base-from), var(--bg-base-to));
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(167, 139, 250, 0.3); border-radius: 2px; }
+
+/* ── Selection ── */
+::selection { background: rgba(139, 92, 246, 0.35); color: var(--text-primary); }
+
+/* ── Glass Card ── */
+.glass-card {
+  background: var(--surface-glass);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-glass);
+  box-shadow: var(--shadow-card);
+  transition: background 0.25s ease, box-shadow 0.25s ease;
+}
+.glass-card:hover {
+  background: var(--surface-glass-hover);
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* ── Keyframes ── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.35; transform: scale(0.8); }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+@keyframes stream-cursor {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+/* ── Animation Utilities ── */
+.fade-up   { animation: fade-up 0.45s ease both; }
+.fade-up-1 { animation: fade-up 0.45s 0.08s ease both; }
+.fade-up-2 { animation: fade-up 0.45s 0.16s ease both; }
+.fade-up-3 { animation: fade-up 0.45s 0.26s ease both; }
+.fade-up-4 { animation: fade-up 0.45s 0.36s ease both; }
+.fade-in   { animation: fade-in 0.3s ease both; }
+.spin      { animation: spin 1s linear infinite; }
+
+/* ── Shimmer Skeleton ── */
+.shimmer {
+  background: linear-gradient(90deg,
+    rgba(109,40,217,0.15) 25%,
+    rgba(139,92,246,0.25) 50%,
+    rgba(109,40,217,0.15) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* ── Live Dot ── */
+.dot-live {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green-live);
+  box-shadow: 0 0 6px rgba(134, 239, 172, 0.6);
+  animation: pulse-dot 2s ease infinite;
+  flex-shrink: 0;
+}
+
+/* ── Inset Surface (stream log, inputs) ── */
+.inset-surface {
+  background: var(--surface-inset);
+  border: 1px solid var(--border-purple);
+  border-radius: var(--radius-sm);
+}
+
+/* ── Input base ── */
+.glass-input {
+  width: 100%;
+  background: var(--surface-inset);
+  border: 1px solid var(--border-purple);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-family: var(--font-body);
+  color: var(--text-secondary);
+  outline: none;
+  resize: none;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+.glass-input::placeholder { color: var(--text-faint); }
+.glass-input:focus {
+  border-color: var(--border-purple-hi);
+  background: rgba(0, 0, 0, 0.28);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+
+/* ── Button ── */
+.btn-primary {
+  width: 100%;
+  background: var(--purple-btn);
+  color: var(--text-primary);
+  border: 1px solid var(--border-purple-hi);
+  border-radius: var(--radius-md);
+  padding: 11px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-btn);
+  transition: background 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--purple-btn-hover);
+  box-shadow: var(--shadow-btn-hover);
+  transform: translateY(-1px);
+}
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Card Label ── */
+.card-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-faint);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+
+/* ── Formula card (analysis results) ── */
+.formula-card {
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--border-purple);
+  border-left: 2px solid var(--purple-bright);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+}
+.formula-card .label {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 3px;
+}
+.formula-card .value {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* ── Film frame ── */
+.film-frame-img {
+  background: rgba(109, 40, 217, 0.22);
+  border: 1px solid var(--border-purple);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--purple-bright);
+  overflow: hidden;
+}
+
+/* ── Status chip ── */
+.status-chip {
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--border-purple);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── Hint tag ── */
+.hint-tag {
+  background: rgba(109, 40, 217, 0.18);
+  border: 1px solid rgba(167, 139, 250, 0.18);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ── Generating spinner ring ── */
+.spinner-ring {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 2px solid rgba(167, 139, 250, 0.15);
+  border-top-color: var(--purple-bright);
+  animation: spin 1s linear infinite;
 }

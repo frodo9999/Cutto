@@ -15,10 +15,43 @@ def _create_veo_client():
     )
 
 
+def _extract_video_uri(operation) -> str | None:
+    """Try every known response structure to extract the GCS URI."""
+    # Structure 1: operation.result.generated_videos[0].video.uri
+    result = getattr(operation, "result", None)
+    if result:
+        videos = getattr(result, "generated_videos", None)
+        if videos:
+            try:
+                return videos[0].video.uri
+            except Exception:
+                pass
+
+    # Structure 2: operation.response.generated_videos[0].video.uri
+    response = getattr(operation, "response", None)
+    if response:
+        videos = getattr(response, "generated_videos", None)
+        if videos:
+            try:
+                return videos[0].video.uri
+            except Exception:
+                pass
+
+    # Structure 3: response is a dict
+    if isinstance(response, dict):
+        try:
+            return response["generated_videos"][0]["video"]["uri"]
+        except (KeyError, IndexError, TypeError):
+            pass
+
+    return None
+
+
 def _generate_clip_sync(prompt: str, duration_seconds: int, output_gcs_uri: str) -> str:
     """Synchronous Veo generation - runs in thread pool."""
     valid_durations = [4, 6, 8]
     duration_seconds = min(valid_durations, key=lambda x: abs(x - duration_seconds))
+
     client = _create_veo_client()
 
     operation = client.models.generate_videos(
@@ -34,27 +67,38 @@ def _generate_clip_sync(prompt: str, duration_seconds: int, output_gcs_uri: str)
 
     # Poll until done
     while not operation.done:
-        print(f"[Veo] Waiting for video generation...")
+        print(f"[Veo] Waiting for operation {getattr(operation, 'name', '?')}...")
         time.sleep(15)
         operation = client.operations.get(operation)
 
-    print(f"[Veo] Operation done. Response: {operation.response}")
-    print(f"[Veo] Operation result: {operation.result}")
-    print(f"[Veo] Operation error: {operation.error}")
+    print(f"[Veo] Operation done.")
 
-    if operation.error:
-        error_msg = operation.error.get('message') if isinstance(operation.error, dict) else str(operation.error)
-        raise Exception(f"Veo error: {error_msg}")
+    # Check for error — operation.error can be an object, dict, or None
+    error = getattr(operation, "error", None)
+    if error:
+        # Extract message regardless of error format
+        if isinstance(error, dict):
+            error_msg = error.get("message") or str(error)
+        else:
+            error_msg = getattr(error, "message", None) or str(error)
+        # Only raise if there's an actual non-empty message
+        if error_msg and error_msg.lower() not in ("none", ""):
+            raise Exception(f"Veo error: {error_msg}")
+        else:
+            # error object exists but message is None/empty — log and continue
+            print(f"[Veo] Operation error field present but empty: {error!r}")
 
-    # Try different response structures
-    result = operation.result
-    if result and hasattr(result, 'generated_videos') and result.generated_videos:
-        uri = result.generated_videos[0].video.uri
-    elif operation.response and hasattr(operation.response, 'generated_videos') and operation.response.generated_videos:
-        uri = operation.response.generated_videos[0].video.uri
-    else:
-        print(f"[Veo] Full operation dump: {vars(operation)}")
-        raise Exception("Veo returned no videos")
+    # Extract URI
+    uri = _extract_video_uri(operation)
+    if not uri:
+        # Log full operation for debugging
+        try:
+            print(f"[Veo] Could not extract URI. operation.result={operation.result!r}")
+            print(f"[Veo] operation.response={operation.response!r}")
+        except Exception:
+            pass
+        raise Exception("Veo returned no video URI — check GCS bucket permissions and output_gcs_uri path")
+
     print(f"[Veo] Clip generated: {uri}")
     return uri
 

@@ -13,3 +13,4 @@ frontend/.env.local
 .DS_Store
 *.pyc
 .claude/
+.idea/
