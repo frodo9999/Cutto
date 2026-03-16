@@ -198,7 +198,7 @@ export default function AnalysisStream({ videoFile, onResult, onStageChange }: P
         setAnalysisDone(true);
       } catch (err: unknown) {
         if ((err as Error).name !== "AbortError")
-          setLogs(l => [...l, "Error: " + (err as Error).message]);
+          console.error("Analysis error:", (err as Error).message);
       }
     })();
     return () => ctrl.abort();
