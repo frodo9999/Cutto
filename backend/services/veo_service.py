@@ -234,3 +234,29 @@ async def _extend_video_clip(prompt: str, source_gcs_uri: str, output_gcs_uri: s
     return await asyncio.to_thread(
         _extend_clip_sync, prompt, source_gcs_uri, output_gcs_uri
     )
+
+async def generate_continuous_group_clip(
+    prompts: list[str],
+    gcs_bucket: str,
+    job_id: str,
+    group_id: int,
+) -> str:
+    """
+    Generate a long clip for a continuous scene group by:
+    1. Generating the first scene as an 8s clip
+    2. Extending it for each subsequent scene (7s each)
+    Returns the GCS URI of the final extended clip.
+    """
+    # Generate base clip (first scene in group)
+    base_uri = f"gs://{gcs_bucket}/jobs/{job_id}/groups/group_{group_id:02d}_base.mp4"
+    print(f"[Veo] Group {group_id}: generating base clip for scene 1/{len(prompts)}...")
+    current_uri = await generate_video_clip(prompts[0], 8, base_uri)
+
+    # Extend for each subsequent scene
+    for i, prompt in enumerate(prompts[1:], start=1):
+        ext_uri = f"gs://{gcs_bucket}/jobs/{job_id}/groups/group_{group_id:02d}_ext_{i:02d}.mp4"
+        print(f"[Veo] Group {group_id}: extending for scene {i+1}/{len(prompts)}...")
+        current_uri = await _extend_video_clip(prompt, current_uri, ext_uri)
+
+    print(f"[Veo] Group {group_id}: long clip ready → {current_uri}")
+    return current_uri

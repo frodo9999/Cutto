@@ -137,18 +137,24 @@ async def composite_video(
 
 
 async def _simple_concat(clips: list[str], output_path: str, tmpdir: str):
-    """Simple concatenation using concat demuxer."""
+    """Concatenate clips with re-encode for format consistency."""
     concat_file = os.path.join(tmpdir, "concat.txt")
     with open(concat_file, "w") as f:
         for clip in clips:
             f.write(f"file '{clip}'\n")
+
+    print(f"[FFmpeg] Concatenating {len(clips)} clips...")
 
     cmd = [
         "ffmpeg", "-y",
         "-f", "concat",
         "-safe", "0",
         "-i", concat_file,
-        "-c", "copy",
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "23",
+        "-an",
+        "-movflags", "+faststart",
         output_path,
     ]
     proc = await asyncio.create_subprocess_exec(
@@ -158,7 +164,8 @@ async def _simple_concat(clips: list[str], output_path: str, tmpdir: str):
     )
     _, stderr = await proc.communicate()
     if proc.returncode != 0:
-        raise Exception(f"FFmpeg concat failed: {stderr.decode()}")
+        raise Exception(f"FFmpeg concat failed: {stderr.decode()[-500:]}")
+    print(f"[FFmpeg] Concat done → {output_path}")
 
 
 # xfade transition types supported by FFmpeg
@@ -266,6 +273,50 @@ async def _composite_with_transitions(
         print(f"[FFmpeg] xfade failed, falling back to simple concat: {stderr.decode()[-300:]}")
         tmpdir = os.path.dirname(output_path)
         await _simple_concat(clips, output_path, tmpdir)
+
+
+async def extract_keyframes(
+    video_gcs_uri: str,
+    timestamps: list[float],
+    job_id: str,
+    gcs_bucket: str,
+) -> list[str]:
+    """
+    Download video from GCS, extract one frame per timestamp,
+    upload to GCS, return list of public URLs.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        local_video = os.path.join(tmpdir, "source.mp4")
+        await download_from_gcs(video_gcs_uri, local_video)
+
+        frame_urls = []
+        for i, ts in enumerate(timestamps):
+            frame_path = os.path.join(tmpdir, f"frame_{i:02d}.jpg")
+            cmd = [
+                "ffmpeg", "-y",
+                "-ss", str(ts),
+                "-i", local_video,
+                "-frames:v", "1",
+                "-q:v", "3",
+                "-vf", "scale=480:-1",
+                frame_path,
+            ]
+            result = subprocess.run(cmd, capture_output=True)
+
+            if result.returncode == 0 and os.path.exists(frame_path):
+                gcs_frame_uri = f"gs://{gcs_bucket}/jobs/{job_id}/frames/frame_{i:02d}.jpg"
+                await upload_to_gcs(frame_path, gcs_frame_uri)
+                bucket_name, blob_name = _parse_gcs_uri(gcs_frame_uri)
+                bucket = storage_client.bucket(bucket_name)
+                blob = bucket.blob(blob_name)
+                blob.make_public()
+                frame_urls.append(blob.public_url)
+                print(f"[Keyframe] Scene {i+1} @ {ts:.1f}s → {blob.public_url}")
+            else:
+                print(f"[Keyframe] Failed to extract frame at {ts:.1f}s")
+                frame_urls.append(None)
+
+        return frame_urls
 
 
 async def generate_signed_url(gcs_uri: str, expiration_minutes: int = 60) -> str:

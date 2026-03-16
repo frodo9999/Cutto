@@ -9,15 +9,13 @@ from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 
 def sse_event(data: dict) -> str:
-    """Safely encode SSE event, escaping content that could break SSE framing."""
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 load_dotenv()
 
-from models.schemas import JobStatus, GenerationRequest, AnalysisResult
+from models.schemas import JobStatus, GenerationRequest, AnalysisResult, DirectorScene
 from services import gemini_service, veo_service, ffmpeg_service, storage_service
 
-# In-memory job store (use Redis in production)
 jobs: dict[str, JobStatus] = {}
 
 
@@ -48,17 +46,11 @@ async def analyze_video(
     viral_video: UploadFile = File(...),
     user_requirements: str = Form(default=""),
 ):
-    """
-    Upload a viral video and stream back Gemini's analysis with interleaved output.
-    Returns a streaming response with text chunks and storyboard images.
-    """
-    # Upload viral video to GCS
     video_bytes = await viral_video.read()
     gcs_uri, job_id = await storage_service.upload_file(
         video_bytes, viral_video.filename, viral_video.content_type or "video/mp4"
     )
 
-    # Initialize job
     jobs[job_id] = JobStatus(
         job_id=job_id,
         status="analyzing",
@@ -71,22 +63,32 @@ async def analyze_video(
         yield f"data: {json.dumps({'type': 'status', 'content': 'Gemini is analyzing your viral video...'})}\n\n"
 
         analysis_data = None
-        storyboard_images = []
 
         async for event in gemini_service.analyze_viral_video_stream(gcs_uri):
             if event["type"] == "text_chunk":
                 yield sse_event(event)
-            elif event["type"] == "storyboard_image":
-                storyboard_images.append(event["content"])
-                # 不通过SSE发送图片，存到job里
-                yield sse_event({"type": "storyboard_image_ready", "index": len(storyboard_images) - 1})
             elif event["type"] == "analysis_complete":
                 analysis_data = event["content"]
                 yield sse_event(event)
+            elif event["type"] == "keyframe_timestamps":
+                timestamps = event["timestamps"]
+                try:
+                    frame_urls = await ffmpeg_service.extract_keyframes(
+                        gcs_uri, timestamps, job_id,
+                        os.getenv("GCS_BUCKET_NAME", "cutto-videos")
+                    )
+                    for i, url in enumerate(frame_urls):
+                        if url:
+                            yield sse_event({
+                                "type": "storyboard_frame",
+                                "index": i,
+                                "url": url,
+                            })
+                except Exception as e:
+                    print(f"[Keyframe] Extraction failed: {e}")
             elif event["type"] == "error":
                 yield sse_event(event)
 
-        # Save analysis to job
         if analysis_data:
             jobs[job_id] = JobStatus(
                 job_id=job_id,
@@ -94,7 +96,7 @@ async def analyze_video(
                 progress=40,
                 message="Analysis complete! Ready to generate your video.",
                 analysis=AnalysisResult(**analysis_data),
-                storyboard_images=storyboard_images,
+                storyboard_images=[],
             )
         yield f"data: {json.dumps({'type': 'done', 'job_id': job_id})}\n\n"
 
@@ -105,35 +107,101 @@ async def analyze_video(
     )
 
 
-@app.post("/api/generate/{job_id}")
-async def generate_video(
+@app.post("/api/director/{job_id}")
+async def create_director_script(
     job_id: str,
     custom_assets_description: str = Form(default=""),
     user_requirements: str = Form(default=""),
-    custom_asset: UploadFile = File(default=None),
 ):
     """
-    Generate the final video based on analysis + user customization.
-    Runs Veo generation + FFmpeg compositing as a background task.
+    Step 1 of generation: create director script + storyboard images via SSE.
+    Streams: script_ready → storyboard_image (one per scene) → done
     """
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = jobs[job_id]
+    if not job.analysis:
+        raise HTTPException(status_code=400, detail="Analysis not complete")
+
+    async def stream_director():
+        # Step 1: Generate director script (text)
+        director_scenes = await gemini_service.generate_director_script(
+            job.analysis, custom_assets_description, user_requirements
+        )
+
+        # Save to job
+        def parse_duration(v) -> float:
+            if isinstance(v, str):
+                v = v.lower().replace("s", "").strip()
+            return float(v)
+
+        jobs[job_id].director_scenes = [
+            DirectorScene(
+                scene=s["scene"],
+                duration=parse_duration(s["duration"]),
+                description=s["description"],
+                veo_prompt=s["veo_prompt"],
+                cut_requirement=s["cut_requirement"],
+                continuous_group_id=s.get("continuous_group_id", idx + 100),
+            )
+            for idx, s in enumerate(director_scenes)
+        ]
+        jobs[job_id].status = "director_ready"
+        jobs[job_id].message = "Director script ready for review."
+
+        # Stream script to frontend
+        yield sse_event({
+            "type": "script_ready",
+            "scenes": [
+                {
+                    "scene": s["scene"],
+                    "duration": s["duration"],
+                    "description": s["description"],
+                    "veo_prompt": s.get("veo_prompt", ""),
+                }
+                for s in director_scenes
+            ]
+        })
+
+        # Step 2: Generate storyboard images in parallel (interleaved output)
+        async def gen_image(s, idx):
+            img = await gemini_service.generate_storyboard_image(
+                s.get("veo_prompt", s.get("description", "")), s["scene"]
+            )
+            return idx, img
+
+        tasks = [gen_image(s, i) for i, s in enumerate(director_scenes)]
+        for coro in asyncio.as_completed(tasks):
+            idx, img = await coro
+            if img:
+                yield sse_event({
+                    "type": "director_frame",
+                    "index": idx,
+                    "image": img,
+                })
+
+        yield sse_event({"type": "done", "job_id": job_id})
+
+    return StreamingResponse(
+        stream_director(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/generate/{job_id}")
+async def generate_video(job_id: str):
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
 
     job = jobs[job_id]
     if not job.analysis:
         raise HTTPException(status_code=400, detail="Analysis not complete")
+    if not job.director_scenes:
+        raise HTTPException(status_code=400, detail="Director script not found. Call /api/director first.")
 
-    # Upload custom asset if provided
-    custom_asset_uri = None
-    if custom_asset:
-        asset_bytes = await custom_asset.read()
-        custom_asset_uri, _ = await storage_service.upload_file(
-            asset_bytes, custom_asset.filename, custom_asset.content_type or "video/mp4"
-        )
-
-    # Start background generation
     asyncio.create_task(
-        _run_generation(job_id, job.analysis, custom_assets_description, user_requirements, custom_asset_uri)
+        _run_generation(job_id, job.analysis, None)
     )
 
     return {"job_id": job_id, "status": "generating"}
@@ -142,65 +210,99 @@ async def generate_video(
 async def _run_generation(
     job_id: str,
     analysis: AnalysisResult,
-    custom_assets_description: str,
-    user_requirements: str,
     custom_asset_uri: str | None,
 ):
-    """Background task: generate video clips with Veo, then composite with FFmpeg."""
     gcs_bucket = os.getenv("GCS_BUCKET_NAME", "cutto-videos")
 
     try:
-        # Step 1: Generate Veo prompts
+        # Step 1: Load director script
         jobs[job_id].status = "generating"
         jobs[job_id].progress = 50
-        jobs[job_id].message = "Generating Veo prompts from analysis..."
+        jobs[job_id].message = "Starting video generation..."
 
-        veo_prompts = await gemini_service.generate_veo_prompts(
-            analysis, custom_assets_description, user_requirements
-        )
+        director_scenes = [
+            s.model_dump() if hasattr(s, "model_dump") else dict(s)
+            for s in jobs[job_id].director_scenes
+        ]
 
-        scene_durations = [s["duration"] for s in analysis.storyboard]
-        # Ensure lengths match
+        veo_prompts = await gemini_service.generate_veo_prompts(director_scenes)
+
+        scene_durations = [float(s["duration"]) for s in director_scenes]
         if len(scene_durations) != len(veo_prompts):
-            scene_durations = [5] * len(veo_prompts)
+            scene_durations = [2.0] * len(veo_prompts)
 
-        # Extract continuity flags from storyboard
-        continuity_flags = []
-        for scene in analysis.storyboard:
-            scene_dict = scene.model_dump() if hasattr(scene, "model_dump") else dict(scene)
-            continuity_flags.append(bool(scene_dict.get("continuous_with_next", False)))
-
-        # Step 2: Generate clips with Veo (with image-to-video for continuous scenes)
+        # Step 2: Group scenes by continuous_group_id and generate clips
         jobs[job_id].progress = 60
-        jobs[job_id].message = f"Veo is generating {len(veo_prompts)} video clips..."
+        jobs[job_id].message = f"Veo is generating video clips..."
 
-        clip_uris = await veo_service.generate_all_clips(
-            veo_prompts, scene_durations, gcs_bucket, job_id,
-            continuous_flags=continuity_flags,
-        )
+        # Build groups: {group_id: [scene_indices]}
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for i, scene in enumerate(director_scenes):
+            gid = scene.get("continuous_group_id", i + 100)  # unique id for independent scenes
+            groups[gid].append(i)
 
-        # Step 3: Gemini finds best cut points for each clip
+        # clip_uris[i] = GCS URI of the clip for scene i
+        # group_clip_map[i] = (clip_uri, is_group) — group clips shared by multiple scenes
+        clip_uris = [None] * len(director_scenes)
+        cut_points = [None] * len(director_scenes)
+
+        # Step 2a: Generate clips per group
+        for gid, scene_indices in sorted(groups.items()):
+            group_prompts = [veo_prompts[i] for i in scene_indices]
+
+            if len(scene_indices) == 1:
+                # Independent scene — generate normally
+                i = scene_indices[0]
+                output_uri = f"gs://{gcs_bucket}/jobs/{job_id}/clips/scene_{i:02d}.mp4"
+                print(f"[Veo] Scene {i+1}: generating independently...")
+                uri = await veo_service.generate_video_clip(group_prompts[0], 8, output_uri)
+                clip_uris[i] = uri
+            else:
+                # Continuous group — generate one long clip
+                print(f"[Veo] Group {gid}: generating continuous clip for scenes {[i+1 for i in scene_indices]}...")
+                long_uri = await veo_service.generate_continuous_group_clip(
+                    group_prompts, gcs_bucket, job_id, gid
+                )
+                # All scenes in this group share the same long clip
+                for i in scene_indices:
+                    clip_uris[i] = long_uri
+
+        print(f"[DEBUG] clip_uris ({len(clip_uris)} entries):")
+        for i, uri in enumerate(clip_uris):
+            print(f"  [{i}] {uri}")
+
+        # Step 3: Find cut points per group
         jobs[job_id].progress = 75
         jobs[job_id].message = "Gemini is finding the best cut points..."
 
-        cut_points = []
-        for i, (clip_uri, scene_duration) in enumerate(zip(clip_uris, scene_durations)):
-            scene = analysis.storyboard[i] if i < len(analysis.storyboard) else {}
-            scene_dict = scene.model_dump() if hasattr(scene, "model_dump") else dict(scene)
-            start, end = await gemini_service.find_best_cut(clip_uri, scene_dict, float(scene_duration))
-            cut_points.append((start, end))
+        for gid, scene_indices in sorted(groups.items()):
+            if len(scene_indices) == 1:
+                # Single scene — use find_best_cut
+                i = scene_indices[0]
+                scene_dict = director_scenes[i]
+                start, end = await gemini_service.find_best_cut(
+                    clip_uris[i], scene_dict, float(scene_durations[i])
+                )
+                cut_points[i] = (start, end)
+            else:
+                # Continuous group — use find_scene_cuts on the shared long clip
+                group_scenes = [director_scenes[i] for i in scene_indices]
+                group_cuts = await gemini_service.find_scene_cuts(
+                    clip_uris[scene_indices[0]], group_scenes
+                )
+                for i, (start, end) in zip(scene_indices, group_cuts):
+                    cut_points[i] = (start, end)
 
-        # Step 4: Composite with FFmpeg using smart cut points
+        # Step 4: Composite with FFmpeg
         jobs[job_id].progress = 85
         jobs[job_id].message = "Compositing final video with FFmpeg..."
 
-        # Extract per-scene transition types from analysis
+        # Transition types from original analysis
         transitions = []
         for scene in analysis.storyboard:
             scene_dict = scene.model_dump() if hasattr(scene, "model_dump") else dict(scene)
             transitions.append(scene_dict.get("transition_out", "cut"))
-        # transitions[i] is the transition OUT of scene i (between scene i and i+1)
-        # We need n-1 transitions for n clips
         transitions = transitions[:len(clip_uris) - 1]
 
         final_uri = await ffmpeg_service.composite_video(
@@ -209,7 +311,6 @@ async def _run_generation(
             transitions=transitions,
         )
 
-        # Step 4: Generate signed URL
         signed_url = await ffmpeg_service.generate_signed_url(final_uri)
 
         jobs[job_id].status = "done"
@@ -224,7 +325,6 @@ async def _run_generation(
 
 @app.get("/api/status/{job_id}")
 async def get_job_status(job_id: str) -> JobStatus:
-    """Poll job status for video generation progress."""
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     return jobs[job_id]
@@ -237,7 +337,6 @@ async def get_storyboard_image(job_id: str, index: int):
     job = jobs[job_id]
     if not job.storyboard_images or index >= len(job.storyboard_images):
         raise HTTPException(status_code=404, detail="Image not found")
-    # 直接返回 base64 data URL
     return {"image": job.storyboard_images[index]}
 
 

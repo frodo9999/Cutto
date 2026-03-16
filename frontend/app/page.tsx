@@ -5,7 +5,7 @@ import UploadZone from "@/components/UploadZone";
 import AnalysisStream from "@/components/AnalysisStream";
 import ResultPlayer from "@/components/ResultPlayer";
 
-export type AppStage = "upload" | "analysis" | "result";
+export type AppStage = "upload" | "analysis" | "brand" | "generate" | "result";
 
 const STEPS = ["Upload", "Analysis", "Brand", "Generate", "Export"];
 
@@ -15,9 +15,11 @@ export default function Home() {
   const [jobId, setJobId] = useState<string>("");
   const [resultUrl, setResultUrl] = useState<string>("");
 
-  // Step index: 0=upload, 1=analysis, 2=brand(inside analysis), 3=generate(inside analysis), 4=result
   const activeStep =
-    stage === "upload" ? 0 : stage === "analysis" ? 1 : 4;
+    stage === "upload" ? 0 :
+    stage === "analysis" ? 1 :
+    stage === "brand" ? 2 :
+    stage === "generate" ? 3 : 4;
 
   function handleUploadDone(file: File) {
     setVideoFile(file);
@@ -114,10 +116,11 @@ export default function Home() {
         {stage === "upload" && (
           <UploadZone onDone={handleUploadDone} />
         )}
-        {stage === "analysis" && videoFile && (
+        {(stage === "analysis" || stage === "brand" || stage === "generate") && videoFile && (
           <AnalysisStream
             videoFile={videoFile}
             onResult={handleResultReady}
+            onStageChange={setStage}
           />
         )}
         {stage === "result" && (
