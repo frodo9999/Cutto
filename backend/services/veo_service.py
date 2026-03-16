@@ -48,9 +48,11 @@ def _extract_video_uri(operation) -> str | None:
 
 
 def _generate_clip_sync(prompt: str, duration_seconds: int, output_gcs_uri: str) -> str:
-    """Synchronous Veo generation - runs in thread pool."""
-    valid_durations = [4, 6, 8]
-    duration_seconds = min(valid_durations, key=lambda x: abs(x - duration_seconds))
+    """Synchronous Veo generation - runs in thread pool.
+    Always generates 8s to give Gemini the most material to find the best cut.
+    """
+    # Always use 8s — Gemini will find the best cut window afterward
+    FIXED_DURATION = 8
 
     client = _create_veo_client()
 
@@ -58,10 +60,11 @@ def _generate_clip_sync(prompt: str, duration_seconds: int, output_gcs_uri: str)
         model=VEO_MODEL,
         prompt=prompt,
         config=types.GenerateVideosConfig(
-            duration_seconds=duration_seconds,
+            duration_seconds=FIXED_DURATION,
             output_gcs_uri=output_gcs_uri,
             aspect_ratio="9:16",
             number_of_videos=1,
+            enhance_prompt=True,
         ),
     )
 

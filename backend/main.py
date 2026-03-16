@@ -172,12 +172,24 @@ async def _run_generation(
             veo_prompts, scene_durations, gcs_bucket, job_id
         )
 
-        # Step 3: Composite with FFmpeg
+        # Step 3: Gemini finds best cut points for each clip
+        jobs[job_id].progress = 75
+        jobs[job_id].message = "Gemini is finding the best cut points..."
+
+        cut_points = []
+        for i, (clip_uri, scene_duration) in enumerate(zip(clip_uris, scene_durations)):
+            scene = analysis.storyboard[i] if i < len(analysis.storyboard) else {}
+            scene_dict = scene.model_dump() if hasattr(scene, "model_dump") else dict(scene)
+            start, end = await gemini_service.find_best_cut(clip_uri, scene_dict, float(scene_duration))
+            cut_points.append((start, end))
+
+        # Step 4: Composite with FFmpeg using smart cut points
         jobs[job_id].progress = 85
         jobs[job_id].message = "Compositing final video with FFmpeg..."
 
         final_uri = await ffmpeg_service.composite_video(
-            clip_uris, custom_asset_uri, job_id, gcs_bucket
+            clip_uris, custom_asset_uri, job_id, gcs_bucket,
+            cut_points=cut_points,
         )
 
         # Step 4: Generate signed URL

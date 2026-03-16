@@ -12,11 +12,13 @@ interface Props {
 }
 
 interface Analysis {
-  hook?: string;
+  hook_strategy?: string;
   pacing?: string;
   visual_style?: string;
-  audio?: string;
-  storyboard?: { scene: number; description: string; duration: number }[];
+  audio_style?: string;
+  caption_style?: string;
+  viral_factors?: string[];
+  storyboard?: { scene: number; description: string; duration: number; visual_prompt?: string; timing_note?: string }[];
 }
 
 type GenStep = "prompts" | "veo" | "ffmpeg" | "done";
@@ -288,10 +290,10 @@ export default function AnalysisStream({ videoFile, onResult }: Props) {
           {analysisDone && analysis.hook && (
             <div className="fade-up-1" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginTop: 12 }}>
               {[
-                { label: "Hook",   value: analysis.hook },
-                { label: "Pacing", value: analysis.pacing },
-                { label: "Visual", value: analysis.visual_style },
-                { label: "Audio",  value: analysis.audio },
+                { label: "Hook",    value: analysis.hook_strategy },
+                { label: "Pacing",  value: analysis.pacing },
+                { label: "Visual",  value: analysis.visual_style },
+                { label: "Audio",   value: analysis.audio_style },
               ].map((f) => f.value && (
                 <div key={f.label} className="formula-card">
                   <div className="label">{f.label}</div>
