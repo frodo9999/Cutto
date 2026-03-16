@@ -180,8 +180,8 @@ export default function AnalysisStream({ videoFile, onResult }: Props) {
   }
 
   async function pollStatus() {
-    const INTERVAL = 4000;
-    const MAX_WAIT = 8 * 60 * 1000; // 8 min
+    const INTERVAL = 3000;
+    const MAX_WAIT = 20 * 60 * 1000; // 20 min
     const start = Date.now();
 
     while (Date.now() - start < MAX_WAIT) {
