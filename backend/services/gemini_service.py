@@ -42,7 +42,8 @@ Return your analysis as a JSON object with this exact structure:
       "description": "what happens in this scene",
       "visual_prompt": "A highly detailed Veo cinematic prompt for this scene. Must include: (1) subject and action, (2) camera movement (e.g. slow push in, handheld tracking, static wide), (3) lighting (e.g. golden hour backlight, soft studio fill, neon rim light), (4) color grade (e.g. warm orange tones, desaturated muted palette, high contrast punchy), (5) shot type (e.g. extreme close-up on product, medium shot, aerial drone), (6) mood/energy (e.g. fast-paced kinetic energy, calm meditative, euphoric). Write as a single flowing paragraph of 4-6 sentences.",
       "timing_note": "edit/transition note",
-      "transition_out": "cut"
+      "transition_out": "cut",
+      "continuous_with_next": false
     }
   ]
 }
@@ -59,6 +60,11 @@ For transition_out, choose exactly one from this list based on what you observe 
 - "slidedown" — slide outgoing scene downward
 
 Default to "cut" unless you clearly see a different transition in the original video.
+
+For continuous_with_next: set to true if this scene flows directly and continuously into the next scene
+with shared objects, characters, or physical actions (e.g. opening a box in scene 1 and taking out the 
+item in scene 2). Set to false if the next scene is a completely different shot or setting.
+Set "continuous_with_next" to true ONLY when the next scene is a direct continuation of action from this scene (e.g. a hand opens a box in scene 1, and scene 2 shows what is inside that same box). Set to false for scene cuts that introduce new subjects, locations, or angles with no narrative continuity.
 Be specific and actionable. The visual_prompt for each scene must be detailed enough for Veo to generate a high-quality, on-brand video clip without any additional context."""
 
     contents = [

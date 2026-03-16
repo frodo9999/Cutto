@@ -164,12 +164,19 @@ async def _run_generation(
         if len(scene_durations) != len(veo_prompts):
             scene_durations = [5] * len(veo_prompts)
 
-        # Step 2: Generate clips with Veo
+        # Extract continuity flags from storyboard
+        continuity_flags = []
+        for scene in analysis.storyboard:
+            scene_dict = scene.model_dump() if hasattr(scene, "model_dump") else dict(scene)
+            continuity_flags.append(bool(scene_dict.get("continuous_with_next", False)))
+
+        # Step 2: Generate clips with Veo (with image-to-video for continuous scenes)
         jobs[job_id].progress = 60
         jobs[job_id].message = f"Veo is generating {len(veo_prompts)} video clips..."
 
         clip_uris = await veo_service.generate_all_clips(
-            veo_prompts, scene_durations, gcs_bucket, job_id
+            veo_prompts, scene_durations, gcs_bucket, job_id,
+            continuous_flags=continuity_flags,
         )
 
         # Step 3: Gemini finds best cut points for each clip
