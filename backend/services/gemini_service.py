@@ -41,11 +41,24 @@ Return your analysis as a JSON object with this exact structure:
       "duration": 3,
       "description": "what happens in this scene",
       "visual_prompt": "A highly detailed Veo cinematic prompt for this scene. Must include: (1) subject and action, (2) camera movement (e.g. slow push in, handheld tracking, static wide), (3) lighting (e.g. golden hour backlight, soft studio fill, neon rim light), (4) color grade (e.g. warm orange tones, desaturated muted palette, high contrast punchy), (5) shot type (e.g. extreme close-up on product, medium shot, aerial drone), (6) mood/energy (e.g. fast-paced kinetic energy, calm meditative, euphoric). Write as a single flowing paragraph of 4-6 sentences.",
-      "timing_note": "edit/transition note"
+      "timing_note": "edit/transition note",
+      "transition_out": "cut"
     }
   ]
 }
 
+For transition_out, choose exactly one from this list based on what you observe in the video:
+- "cut" — instant hard cut (most common in fast-paced viral videos)
+- "fade" — fade to black/white then fade in
+- "dissolve" — crossfade/dissolve between scenes
+- "wipeleft" — wipe from right to left
+- "wiperight" — wipe from left to right
+- "slideleft" — slide outgoing scene to the left
+- "slideright" — slide outgoing scene to the right
+- "slideup" — slide outgoing scene upward
+- "slidedown" — slide outgoing scene downward
+
+Default to "cut" unless you clearly see a different transition in the original video.
 Be specific and actionable. The visual_prompt for each scene must be detailed enough for Veo to generate a high-quality, on-brand video clip without any additional context."""
 
     contents = [

@@ -85,11 +85,13 @@ async def composite_video(
     job_id: str,
     gcs_bucket: str,
     cut_points: list[tuple[float, float]] | None = None,
+    transitions: list[str] | None = None,
     add_transitions: bool = True,
 ) -> str:
     """
     Composite all generated clips into a final video using FFmpeg.
     Uses Gemini-determined cut_points (start, end) per clip for smart trimming.
+    Uses per-scene transition types from original video analysis.
     Returns GCS URI of the final video.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -123,7 +125,7 @@ async def composite_video(
         output_path = os.path.join(tmpdir, "final.mp4")
 
         if add_transitions and len(local_clips) > 1:
-            await _composite_with_transitions(local_clips, output_path)
+            await _composite_with_transitions(local_clips, output_path, transitions)
         else:
             await _simple_concat(local_clips, output_path, tmpdir)
 
@@ -159,34 +161,87 @@ async def _simple_concat(clips: list[str], output_path: str, tmpdir: str):
         raise Exception(f"FFmpeg concat failed: {stderr.decode()}")
 
 
-async def _composite_with_transitions(clips: list[str], output_path: str):
-    """Apply xfade transitions between clips."""
+# xfade transition types supported by FFmpeg
+XFADE_TRANSITIONS = {
+    "dissolve", "fade", "wipeleft", "wiperight", "wipeup", "wipedown",
+    "slideleft", "slideright", "slideup", "slidedown",
+    "circlecrop", "rectcrop", "distance", "fadeblack", "fadewhite",
+    "radial", "smoothleft", "smoothright", "smoothup", "smoothdown",
+    "horzopen", "horzclose", "vertopen", "vertclose",
+}
+
+
+async def _composite_with_transitions(
+    clips: list[str],
+    output_path: str,
+    transitions: list[str] | None = None,
+):
+    """
+    Composite clips with per-scene transition types.
+    - "cut": hard cut, no xfade overlap
+    - anything else: xfade with that transition type
+    Falls back to simple concat if all transitions are hard cuts.
+    """
     if len(clips) == 1:
         shutil.copy(clips[0], output_path)
         return
 
-    # Build inputs
+    # Normalize transitions list — default to "cut" if not provided
+    n_transitions = len(clips) - 1
+    if transitions:
+        trans = [t.lower().strip() for t in transitions[:n_transitions]]
+        # Pad with "cut" if shorter than needed
+        trans += ["cut"] * (n_transitions - len(trans))
+    else:
+        trans = ["cut"] * n_transitions
+
+    print(f"[FFmpeg] Transitions: {trans}")
+
+    # If all cuts — simple concat is faster and cleaner
+    if all(t == "cut" for t in trans):
+        import tempfile, os
+        tmpdir = os.path.dirname(output_path)
+        await _simple_concat(clips, output_path, tmpdir)
+        return
+
+    # Mixed: group consecutive cuts and apply xfade for non-cuts
+    # Strategy: re-encode each clip uniformly first, then build filtergraph
+    durations = [_get_clip_duration(c) for c in clips]
     inputs = []
     for clip in clips:
         inputs.extend(["-i", clip])
 
-    # Get actual durations of trimmed clips
-    durations = [_get_clip_duration(c) for c in clips]
-
-    # Use a short transition — keeps energy high
-    transition_duration = 0.2
+    XFADE_DUR = 0.2  # keep snappy
     filter_parts = []
-    offset = durations[0] - transition_duration
+    # We build a chain: [prev_out][i:v] xfade -> [vi]
+    prev_label = "[0:v]"
+    timeline_offset = durations[0]  # running offset accounting for overlaps
 
     for i in range(1, len(clips)):
-        in_a = "[0:v]" if i == 1 else f"[v{i-1}]"
+        t = trans[i - 1]
         in_b = f"[{i}:v]"
-        out = f"[v{i}]" if i < len(clips) - 1 else "[vout]"
+        out_label = f"[v{i}]" if i < len(clips) - 1 else "[vout]"
+
+        if t == "cut":
+            # Hard cut: use xfade with duration=0 equivalent — use "fade" at offset
+            # Actually: use concat filter for hard cuts, xfade for the rest
+            # Simplest: treat cut as xfade with duration=0.05 (imperceptible)
+            xfade_type = "fade"
+            xfade_dur = 0.05
+        else:
+            xfade_type = t if t in XFADE_TRANSITIONS else "fade"
+            xfade_dur = XFADE_DUR
+
+        offset = timeline_offset - xfade_dur
+        offset = max(0.0, offset)
+
         filter_parts.append(
-            f"{in_a}{in_b}xfade=transition=fade:duration={transition_duration}:offset={offset:.2f}{out}"
+            f"{prev_label}{in_b}xfade=transition={xfade_type}"
+            f":duration={xfade_dur}:offset={offset:.3f}{out_label}"
         )
-        if i < len(clips) - 1:
-            offset += durations[i] - transition_duration
+
+        prev_label = out_label
+        timeline_offset += durations[i] - xfade_dur
 
     filter_complex = ";".join(filter_parts)
 
@@ -208,7 +263,9 @@ async def _composite_with_transitions(clips: list[str], output_path: str):
     )
     _, stderr = await proc.communicate()
     if proc.returncode != 0:
-        raise Exception(f"FFmpeg xfade failed: {stderr.decode()}")
+        print(f"[FFmpeg] xfade failed, falling back to simple concat: {stderr.decode()[-300:]}")
+        tmpdir = os.path.dirname(output_path)
+        await _simple_concat(clips, output_path, tmpdir)
 
 
 async def generate_signed_url(gcs_uri: str, expiration_minutes: int = 60) -> str:

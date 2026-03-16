@@ -187,9 +187,19 @@ async def _run_generation(
         jobs[job_id].progress = 85
         jobs[job_id].message = "Compositing final video with FFmpeg..."
 
+        # Extract per-scene transition types from analysis
+        transitions = []
+        for scene in analysis.storyboard:
+            scene_dict = scene.model_dump() if hasattr(scene, "model_dump") else dict(scene)
+            transitions.append(scene_dict.get("transition_out", "cut"))
+        # transitions[i] is the transition OUT of scene i (between scene i and i+1)
+        # We need n-1 transitions for n clips
+        transitions = transitions[:len(clip_uris) - 1]
+
         final_uri = await ffmpeg_service.composite_video(
             clip_uris, custom_asset_uri, job_id, gcs_bucket,
             cut_points=cut_points,
+            transitions=transitions,
         )
 
         # Step 4: Generate signed URL
